@@ -1,0 +1,46 @@
+name: make
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: idea
+        required: true
+      chat_id:
+        description: telegram chat id
+        required: true
+jobs:
+  make:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      MODEL: ${{ secrets.MODEL }}
+      CHAT_ID: ${{ inputs.chat_id }}
+      IDEA: ${{ inputs.prompt }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          pip install -r requirements.txt
+          npm install -g opencode-ai
+      - name: Generate video
+        run: |
+          mkdir -p output
+          opencode run --model "$MODEL" "Follow AGENTS.md. Make a video about: $IDEA"
+      - name: Send result
+        if: always()
+        run: |
+          if [ -f output/final.mp4 ]; then
+            ffmpeg -y -i output/final.mp4 -c:v libx264 -b:v 800k -maxrate 800k -bufsize 1600k -c:a aac -b:a 96k output/small.mp4
+            curl -s -F chat_id="$CHAT_ID" -F video=@output/small.mp4 "https://api.telegram.org/bot$BOT_TOKEN/sendVideo"
+          else
+            curl -s "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" -d chat_id="$CHAT_ID" -d text="Sorry, no video was made. Check the Actions tab on GitHub."
+          fi
